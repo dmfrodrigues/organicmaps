@@ -1,9 +1,13 @@
-#include "qt/place_page_dialog.hpp"
+#include "qt/place_panel.hpp"
 
+#include "qt/editor_dialog.hpp"
 #include "qt/qt_common/text_dialog.hpp"
+#include "qt/hline.hpp"
 
+#include "map/mwm_url.hpp"
 #include "map/place_page_info.hpp"
 #include "indexer/validate_and_format_contacts.hpp"
+#include "indexer/editable_map_object.hpp"
 
 #include <QtWidgets/QDialogButtonBox>
 #include <QtWidgets/QGridLayout>
@@ -14,60 +18,70 @@
 #include <qboxlayout.h>
 #include <qdialog.h>
 #include <qgridlayout.h>
+#include <qlayout.h>
 #include <qnamespace.h>
+#include <qwidget.h>
 #include <sstream>
 #include <string>
 
-const int place_page_description_max_length = 500;
-const int short_description_minimum_width = 390;
-
-class QHLine : public QFrame
-{
-public:
-  QHLine(QWidget * parent = nullptr) : QFrame(parent)
-  {
-    setFrameShape(QFrame::HLine);
-    setFrameShadow(QFrame::Sunken);
-  }
-};
+const int place_panel_description_max_length = 500;
+const int place_panel_width = 390;
 
 std::string getShortDescription(std::string description)
 {
   size_t paragraphStart = description.find("<p>");
   size_t paragraphEnd = description.find("</p>");
   if (paragraphStart == 0 && paragraphEnd != std::string::npos)
-    description = description.substr(3, paragraphEnd);
+    description = description.substr(3, paragraphEnd-3);
 
-  if (description.length() > place_page_description_max_length)
+  if (description.length() > place_panel_description_max_length)
   {
-    description = description.substr(0, place_page_description_max_length-3) + "...";
+    description = description.substr(0, place_panel_description_max_length-3) + "...";
   }
 
   return description;
 }
 
-PlacePageDialog::PlacePageDialog(QWidget * parent, place_page::Info const & info,
-                                 search::ReverseGeocoder::Address const & address)
-  : QDialog(parent)
+PlacePanel::PlacePanel(QWidget * parent)
+  : QWidget(parent)
 {
+  setFixedWidth(place_panel_width);
+}
+
+void PlacePanel::setPlace(place_page::Info const & info,
+  search::ReverseGeocoder::Address const & address)
+{
+  infoPtr = &info;
+
   using PropID = osm::MapObject::MetadataID;
 
   auto const & title = info.GetTitle();
 
+  if(this->layout() != nullptr){
+    QWidget().setLayout(this->layout());
+  }
+
   QVBoxLayout * layout = new QVBoxLayout();
+
+  // Header
   {
-    QVBoxLayout * header = new QVBoxLayout();
+    if (!title.empty()){
+      QLabel * titleLabel = new QLabel(QString::fromStdString("<h1>" + title + "</h1>"));
+      titleLabel->setWordWrap(true);
+      layout->addWidget(titleLabel);
+    }
 
-    if (!title.empty())
-      header->addWidget(new QLabel(QString::fromStdString("<h1>" + title + "</h1>")));
+    if (auto subTitle = info.GetSubtitle(); !subTitle.empty()){
+      QLabel * subtitleLabel = new QLabel(QString::fromStdString(subTitle));
+      subtitleLabel->setWordWrap(true);
+      layout->addWidget(subtitleLabel);
+    }
 
-    if (auto subTitle = info.GetSubtitle(); !subTitle.empty())
-      header->addWidget(new QLabel(QString::fromStdString(subTitle)));
-
-    if (auto addressFormatted = address.FormatAddress(); !addressFormatted.empty())
-      header->addWidget(new QLabel(QString::fromStdString(addressFormatted)));
-
-    layout->addLayout(header);
+    if (auto addressFormatted = address.FormatAddress(); !addressFormatted.empty()){
+      QLabel * addressLabel = new QLabel(QString::fromStdString(addressFormatted));
+      addressLabel->setWordWrap(true);
+      layout->addWidget(addressLabel);
+    }
   }
 
   {
@@ -85,6 +99,7 @@ PlacePageDialog::PlacePageDialog(QWidget * parent, place_page::Info const & info
       data->addWidget(new QLabel(QString::fromStdString(key)), row, 0);
       QLabel * label = new QLabel(QString::fromStdString(value));
       label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+      label->setWordWrap(true);
       if (isLink)
       {
         label->setOpenExternalLinks(true);
@@ -121,7 +136,6 @@ PlacePageDialog::PlacePageDialog(QWidget * parent, place_page::Info const & info
 
       QLabel * value = new QLabel(QString::fromStdString(descriptionShort));
       value->setWordWrap(true);
-      value->setMinimumWidth(short_description_minimum_width);
 
       data->addWidget(value, row++, 0, 1, 2);
 
@@ -255,8 +269,13 @@ PlacePageDialog::PlacePageDialog(QWidget * parent, place_page::Info const & info
       addEntry("lat, lon", strings::to_string_dac(ll.m_lat, 7) + ", " + strings::to_string_dac(ll.m_lon, 7));
     }
 
+    data->setColumnStretch(0, 0);
+    data->setColumnStretch(1, 1);
+
     layout->addLayout(data);
   }
+
+  layout->addStretch(); 
 
   {
     QHLine * line = new QHLine();
@@ -269,7 +288,7 @@ PlacePageDialog::PlacePageDialog(QWidget * parent, place_page::Info const & info
     if (info.ShouldShowEditPlace())
     {
       QPushButton * editButton = new QPushButton("Edit Place");
-      connect(editButton, &QAbstractButton::clicked, this, &PlacePageDialog::OnEdit);
+      connect(editButton, &QAbstractButton::clicked, this, &PlacePanel::OnEdit);
       dbb->addButton(editButton, QDialogButtonBox::ActionRole);
     }
 
@@ -361,10 +380,8 @@ PlacePageDialog::PlacePageDialog(QWidget * parent, place_page::Info const & info
   }
 
   setLayout(layout);
-
-  auto const ppTitle = std::string("Place Page") + (info.IsBookmark() ? " (bookmarked)" : "");
-  setWindowTitle(ppTitle.c_str());
 }
 
-void PlacePageDialog::OnClose() { reject(); }
-void PlacePageDialog::OnEdit() { accept(); }
+void PlacePanel::OnEdit(){
+  editPlace(*infoPtr);
+}

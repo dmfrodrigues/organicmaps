@@ -27,6 +27,8 @@ set(SRC
   draw_widget.hpp
   editor_dialog.cpp
   editor_dialog.hpp
+  hline.cpp
+  hline.hpp
   info_dialog.cpp
   info_dialog.hpp
   main.cpp
@@ -36,8 +38,8 @@ set(SRC
   mwms_borders_selection.hpp
   osm_auth_dialog.cpp
   osm_auth_dialog.hpp
-  place_page_dialog.cpp
-  place_page_dialog.hpp
+  place_panel.cpp
+  place_panel.hpp
   preferences_dialog.cpp
   preferences_dialog.hpp
   popup_menu_holder.cpp

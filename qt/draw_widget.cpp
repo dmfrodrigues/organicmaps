@@ -2,7 +2,7 @@
 
 #include "qt/create_feature_dialog.hpp"
 #include "qt/editor_dialog.hpp"
-#include "qt/place_page_dialog.hpp"
+#include "qt/place_panel.hpp"
 #include "qt/qt_common/helpers.hpp"
 #include "qt/routing_settings_dialog.hpp"
 #include "qt/screenshoter.hpp"
@@ -21,6 +21,7 @@
 #include "storage/storage_defines.hpp"
 
 #include "indexer/editable_map_object.hpp"
+#include "indexer/validate_and_format_contacts.hpp"
 
 #include "platform/platform.hpp"
 
@@ -79,15 +80,21 @@ void DrawMwmBorder(df::DrapeApi & drapeApi, std::string const & mwmName,
 }  // namespace
 
 DrawWidget::DrawWidget(Framework & framework, std::unique_ptr<ScreenshotParams> && screenshotParams,
-                       QWidget * parent)
+                       QWidget * parent, PlacePanel * placePanel)
   : TBase(framework, screenshotParams != nullptr, parent)
   , m_rubberBand(nullptr)
   , m_emulatingLocation(false)
+  , m_placePanel(placePanel)
 {
   setFocusPolicy(Qt::StrongFocus);
 
-  m_framework.SetPlacePageListeners([this]() { ShowPlacePage(); },
-                                    {} /* onClose */, {} /* onUpdate */);
+  m_framework.SetPlacePageListeners(
+    [this]() { ShowPlacePage(); },
+    [this](bool){ HidePlacePage(); }, 
+    {}
+  );
+
+  connect(m_placePanel, &PlacePanel::editPlace, this, &DrawWidget::OnEditPlace);
 
   auto & routingManager = m_framework.GetRoutingManager();
 
@@ -649,30 +656,38 @@ void DrawWidget::ShowPlacePage()
     address = m_framework.GetAddressAtPoint(info.GetMercator());
   }
 
-  PlacePageDialog dlg(this, info, address);
-  if (dlg.exec() == QDialog::Accepted)
+  m_placePanel->setPlace(info, address);
+  m_placePanel->showPlace();
+}
+
+void DrawWidget::OnEditPlace(place_page::Info const & info)
+{
+  osm::EditableMapObject emo;
+  if (m_framework.GetEditableMapObject(info.GetID(), emo))
   {
-    osm::EditableMapObject emo;
-    if (m_framework.GetEditableMapObject(info.GetID(), emo))
+    EditorDialog dlg(this, emo);
+    int const result = dlg.exec();
+    if (result == QDialog::Accepted)
     {
-      EditorDialog dlg(this, emo);
-      int const result = dlg.exec();
-      if (result == QDialog::Accepted)
-      {
-        m_framework.SaveEditedMapObject(emo);
-        m_framework.UpdatePlacePageInfoForCurrentSelection();
-      }
-      else if (result == QDialogButtonBox::DestructiveRole)
-      {
-        m_framework.DeleteFeature(info.GetID());
-      }
+      m_framework.SaveEditedMapObject(emo);
+      m_framework.UpdatePlacePageInfoForCurrentSelection();
     }
-    else
+    else if (result == QDialogButtonBox::DestructiveRole)
     {
-      LOG(LERROR, ("Error while trying to edit feature."));
+      m_framework.DeleteFeature(info.GetID());
     }
   }
+  else
+  {
+    LOG(LERROR, ("Error while trying to edit feature."));
+  }
+
   m_framework.DeactivateMapSelection(false);
+}
+
+void DrawWidget::HidePlacePage()
+{
+  m_placePanel->hidePlace();
 }
 
 void DrawWidget::SetRuler(bool enabled)
